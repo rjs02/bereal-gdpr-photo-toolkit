@@ -204,7 +204,7 @@ def update_exif(image_path, datetime_original, location=None, caption=None):
             exif_dict['0th'][piexif.ImageIFD.ImageDescription] = caption.encode('utf-8')
             logging.info(f"Updated title with caption.")
 
-        
+
         exif_bytes = piexif.dump(exif_dict)
         piexif.insert(exif_bytes, image_path.as_posix())
         logging.info(f"Updated EXIF data for {image_path}.")
@@ -212,7 +212,7 @@ def update_exif(image_path, datetime_original, location=None, caption=None):
         # For debugging: Load and log the updated EXIF data
         #updated_exif_dict = piexif.load(image_path.as_posix())
         #logging.info(f"Updated EXIF data for {image_path}: {updated_exif_dict}")
-        
+
     except Exception as e:
         logging.error(f"Failed to update EXIF data for {image_path}: {e}")
 
@@ -221,11 +221,11 @@ def update_iptc(image_path, caption):
     try:
         # Load the IPTC data from the image
         info = IPTCInfo(image_path, force=True)  # Use force=True to create IPTC data if it doesn't exist
-        
+
         # Check for errors (known issue with iptcinfo3 creating _markers attribute error)
         if not hasattr(info, '_markers'):
             info._markers = []
-        
+
         # Update the "Caption-Abstract" field
         if caption:
             info['caption/abstract'] = caption
@@ -266,7 +266,7 @@ def combine_images_with_resizing(primary_path, secondary_path):
     secondary_image = Image.open(secondary_path)
 
     # Resize the secondary image using LANCZOS resampling for better quality
-    scaling_factor = 1/3.33333333  
+    scaling_factor = 1/3.33333333
     width, height = secondary_image.size
     new_width = int(width * scaling_factor)
     new_height = int(height * scaling_factor)
@@ -286,7 +286,7 @@ def combine_images_with_resizing(primary_path, secondary_path):
 
     # Create a new blank image with the size of the primary image
     combined_image = Image.new("RGB", primary_image.size)
-    combined_image.paste(primary_image, (0, 0))    
+    combined_image.paste(primary_image, (0, 0))
 
     # Draw the black outline with rounded corners directly on the combined image
     outline_layer = Image.new('RGBA', combined_image.size, (0, 0, 0, 0))  # Transparent layer for drawing the outline
@@ -331,7 +331,11 @@ for entry in data:
         # Extract only the filename from the path and then append it to the photo_folder path
         primary_filename = Path(entry['primary']['path']).name
         secondary_filename = Path(entry['secondary']['path']).name
-        
+
+        if (not primary_filename.endswith("webp")) or (not secondary_filename.endswith("webp")):
+            logging.info(f"Skipping image {primary_filename} {secondary_filename} because they are not webp")
+            continue
+
         primary_path = photo_folder / primary_filename
         secondary_path = photo_folder / secondary_filename
 
@@ -343,7 +347,6 @@ for entry in data:
         location = entry.get('location')  # This will be None if 'location' is not present
         caption = entry.get('caption')  # This will be None if 'caption' is not present
 
-        
         for path, role in [(primary_path, 'primary'), (secondary_path, 'secondary')]:
             logging.info(f"Found image: {path}")
             # Check if conversion to JPEG is enabled by the user
@@ -359,7 +362,7 @@ for entry in data:
             # Adjust filename based on user's choice
             time_str = taken_at.strftime("%Y-%m-%dT%H-%M-%S")  # ISO standard format with '-' instead of ':' for time
             original_filename_without_extension = Path(path).stem  # Extract original filename without extension
-            
+
             if convert_to_jpeg == 'yes':
                 if keep_original_filename == 'yes':
                     new_filename = f"{time_str}_{role}_{converted_path.name}"
@@ -370,15 +373,15 @@ for entry in data:
                     new_filename = f"{time_str}_{role}_{original_filename_without_extension}.webp"
                 else:
                     new_filename = f"{time_str}_{role}.webp"
-            
+
             new_path = output_folder / new_filename
             new_path = get_unique_filename(new_path)  # Ensure the filename is unique
-            
+
             if convert_to_jpeg == 'yes' and converted:
                 converted_path.rename(new_path)  # Move and rename the file
 
                 # Update EXIF and IPTC data
-                update_exif(new_path, taken_at, location, caption)                
+                update_exif(new_path, taken_at, location, caption)
                 logging.info(f"EXIF data added to converted image.")
 
                 image_path_str = str(new_path)
@@ -420,7 +423,7 @@ if create_combined_images == 'yes':
         # Construct the new file name for the combined image
         combined_filename = f"{timestamp}_combined.webp"
         combined_image = combine_images_with_resizing(primary_new_path, secondary_path)
-        
+
         combined_image_path = output_folder_combined / (combined_filename)
         combined_image.save(combined_image_path, 'JPEG')
         combined_files_count += 1
