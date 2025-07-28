@@ -158,6 +158,27 @@ def convert_image_format(image_path, target_format):
         logging.error(f"Error converting {image_path} to {target_format.upper()}: {e}")
         return None, False
 
+# Helper function to check if file is a supported image format
+def is_image_file(file_path):
+    """Check if file is a supported image format (not video)"""
+    image_extensions = {'.webp', '.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.gif'}
+    video_extensions = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v'}
+    
+    file_ext = file_path.suffix.lower()
+    
+    if file_ext in video_extensions:
+        return False
+    elif file_ext in image_extensions:
+        return True
+    else:
+        # Try to open with PIL to be sure
+        try:
+            with Image.open(file_path) as img:
+                img.verify()  # Verify it's a valid image
+            return True
+        except Exception:
+            return False
+
 # Helper function to convert latitude and longitude to EXIF-friendly format
 def _convert_to_degrees(value):
     """Convert decimal latitude / longitude to degrees, minutes, seconds (DMS)"""
@@ -207,10 +228,15 @@ def update_exif(image_path, datetime_original, location=None, caption=None):
             exif_dict['0th'][piexif.ImageIFD.ImageDescription] = caption.encode('utf-8')
             logging.info(f"Updated title with caption.")
 
+
         exif_bytes = piexif.dump(exif_dict)
         piexif.insert(exif_bytes, image_path.as_posix())
         logging.info(f"Updated EXIF data for {image_path}.")
-        
+
+        # For debugging: Load and log the updated EXIF data
+        #updated_exif_dict = piexif.load(image_path.as_posix())
+        #logging.info(f"Updated EXIF data for {image_path}: {updated_exif_dict}")
+
     except Exception as e:
         logging.error(f"Failed to update EXIF data for {image_path}: {e}")
 
@@ -219,11 +245,11 @@ def update_iptc(image_path, caption):
     try:
         # Load the IPTC data from the image
         info = IPTCInfo(image_path, force=True)  # Use force=True to create IPTC data if it doesn't exist
-        
+
         # Check for errors (known issue with iptcinfo3 creating _markers attribute error)
         if not hasattr(info, '_markers'):
             info._markers = []
-        
+
         # Update the "Caption-Abstract" field
         if caption:
             info['caption/abstract'] = caption
@@ -264,7 +290,7 @@ def combine_images_with_resizing(primary_path, secondary_path):
     secondary_image = Image.open(secondary_path)
 
     # Resize the secondary image using LANCZOS resampling for better quality
-    scaling_factor = 1/3.33333333  
+    scaling_factor = 1/3.33333333
     width, height = secondary_image.size
     new_width = int(width * scaling_factor)
     new_height = int(height * scaling_factor)
@@ -284,7 +310,7 @@ def combine_images_with_resizing(primary_path, secondary_path):
 
     # Create a new blank image with the size of the primary image
     combined_image = Image.new("RGB", primary_image.size)
-    combined_image.paste(primary_image, (0, 0))    
+    combined_image.paste(primary_image, (0, 0))
 
     # Draw the black outline with rounded corners directly on the combined image
     outline_layer = Image.new('RGBA', combined_image.size, (0, 0, 0, 0))  # Transparent layer for drawing the outline
@@ -329,7 +355,11 @@ for entry in data:
         # Extract only the filename from the path and then append it to the photo_folder path
         primary_filename = Path(entry['primary']['path']).name
         secondary_filename = Path(entry['secondary']['path']).name
-        
+
+        if (not primary_filename.endswith("webp")) or (not secondary_filename.endswith("webp")):
+            logging.info(f"Skipping image {primary_filename} {secondary_filename} because they are not webp")
+            continue
+
         primary_path = photo_folder / primary_filename
         secondary_path = photo_folder / secondary_filename
 
@@ -338,9 +368,9 @@ for entry in data:
             primary_path = bereal_folder / primary_filename
             secondary_path = bereal_folder / secondary_filename
 
-        # Skip if files still not found
-        if not os.path.exists(primary_path) or not os.path.exists(secondary_path):
-            logging.error(f"Could not find files for entry {entry}")
+        # Check if files are actually images (not videos)
+        if not is_image_file(primary_path) or not is_image_file(secondary_path):
+            logging.info(f"Skipping non-image files: {primary_filename}, {secondary_filename}")
             skipped_files_count += 1
             continue
 
@@ -348,7 +378,6 @@ for entry in data:
         location = entry.get('location')  # This will be None if 'location' is not present
         caption = entry.get('caption')  # This will be None if 'caption' is not present
 
-        
         for path, role in [(primary_path, 'primary'), (secondary_path, 'secondary')]:
             logging.info(f"Found image: {path}")
             # Check if format conversion is enabled by the user
@@ -367,25 +396,33 @@ for entry in data:
 
             # Adjust filename based on user's choice
             time_str = taken_at.strftime("%Y-%m-%dT%H-%M-%S")  # ISO standard format with '-' instead of ':' for time
-            original_filename_without_extension = path.stem  # Extract original filename without extension
-            
-            if keep_original_filename == 'yes':
-                new_filename = f"{time_str}_{role}_{original_filename_without_extension}{file_extension}"
+            original_filename_without_extension = Path(path).stem  # Extract original filename without extension
+
+            if convert_to_jpeg == 'yes':
+                if keep_original_filename == 'yes':
+                    new_filename = f"{time_str}_{role}_{converted_path.name}"
+                else:
+                    new_filename = f"{time_str}_{role}.jpg"
             else:
-                new_filename = f"{time_str}_{role}{file_extension}"
-            
+                if keep_original_filename == 'yes':
+                    new_filename = f"{time_str}_{role}_{original_filename_without_extension}.webp"
+                else:
+                    new_filename = f"{time_str}_{role}.webp"
+
             new_path = output_folder / new_filename
             new_path = get_unique_filename(new_path)  # Ensure the filename is unique
-            
-            # Copy file to new location
-            shutil.copy2(path, new_path)
-            
-            # Update EXIF and IPTC data
-            update_exif(new_path, taken_at, location, caption)                
-            logging.info(f"EXIF data added to image.")
 
-            image_path_str = str(new_path)
-            update_iptc(image_path_str, caption)
+            if convert_to_jpeg == 'yes' and converted:
+                converted_path.rename(new_path)  # Move and rename the file
+
+                # Update EXIF and IPTC data
+                update_exif(new_path, taken_at, location, caption)
+                logging.info(f"EXIF data added to converted image.")
+
+                image_path_str = str(new_path)
+                update_iptc(image_path_str, caption)
+            else:
+                shutil.copy2(path, new_path) # Copy to new path
 
             if role == 'primary':
                 primary_images.append({
@@ -430,16 +467,9 @@ if create_combined_images == 'yes':
         # Construct the new file name for the combined image
         combined_filename = f"{timestamp}_combined.{output_format}"
         combined_image = combine_images_with_resizing(primary_new_path, secondary_path)
-        
-        combined_image_path = output_folder_combined / combined_filename
-        combined_image_path = get_unique_filename(combined_image_path)  # Ensure filename is unique
-        
-        # Save combined image
-        if output_format == 'jpg':
-            combined_image.save(combined_image_path, 'JPEG', quality=80)
-        else:
-            combined_image.save(combined_image_path, 'WEBP', quality=80)
-            
+
+        combined_image_path = output_folder_combined / (combined_filename)
+        combined_image.save(combined_image_path, 'JPEG')
         combined_files_count += 1
 
         logging.info(f"Combined image saved: {combined_image_path}")
