@@ -151,6 +151,27 @@ def convert_webp_to_jpg(image_path):
     else:
         return image_path, False
 
+# Helper function to check if file is a supported image format
+def is_image_file(file_path):
+    """Check if file is a supported image format (not video)"""
+    image_extensions = {'.webp', '.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.gif'}
+    video_extensions = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v'}
+    
+    file_ext = file_path.suffix.lower()
+    
+    if file_ext in video_extensions:
+        return False
+    elif file_ext in image_extensions:
+        return True
+    else:
+        # Try to open with PIL to be sure
+        try:
+            with Image.open(file_path) as img:
+                img.verify()  # Verify it's a valid image
+            return True
+        except Exception:
+            return False
+
 # Helper function to convert latitude and longitude to EXIF-friendly format
 def _convert_to_degrees(value):
     """Convert decimal latitude / longitude to degrees, minutes, seconds (DMS)"""
@@ -342,6 +363,12 @@ for entry in data:
         if not os.path.exists(primary_path):
             primary_path = bereal_folder / primary_filename
             secondary_path = bereal_folder / secondary_filename
+
+        # Check if files are actually images (not videos)
+        if not is_image_file(primary_path) or not is_image_file(secondary_path):
+            logging.info(f"Skipping non-image files: {primary_filename}, {secondary_filename}")
+            skipped_files_count += 1
+            continue
 
         taken_at = datetime.strptime(entry['takenAt'], "%Y-%m-%dT%H:%M:%S.%fZ")
         location = entry.get('location')  # This will be None if 'location' is not present
