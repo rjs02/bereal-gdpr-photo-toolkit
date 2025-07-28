@@ -8,6 +8,7 @@ import os
 import time
 import shutil
 from iptcinfo3 import IPTCInfo
+import argparse
 
 # ANSI escape codes for text styling
 STYLING = {
@@ -51,11 +52,15 @@ primary_images = []
 secondary_images = []
 
 # Define paths using pathlib
-json_path = Path('data/posts.json')
-photo_folder = Path('data/Photos/post/')
-bereal_folder = Path('data/Photos/bereal')
-output_folder = Path('data/Photos/post/__processed')
-output_folder_combined = Path('data/Photos/post/__combined')
+parser = argparse.ArgumentParser(description='Process BeReal photos and videos.')
+parser.add_argument('--path', type=str, help='Path to the BeReal data export folder')
+args = parser.parse_args()
+
+json_path = Path(args.path + '/posts.json')
+photo_folder = Path(args.path + '/Photos/post/')
+bereal_folder = Path(args.path + '/Photos/bereal')
+output_folder = Path(args.path + '/Photos/post/__processed')
+output_folder_combined = Path(args.path + '/Photos/post/__combined')
 output_folder.mkdir(parents=True, exist_ok=True)  # Create the output folder if it doesn't exist
 
 # Print the paths
