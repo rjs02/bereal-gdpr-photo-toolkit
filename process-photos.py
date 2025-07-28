@@ -248,12 +248,23 @@ def update_exif(image_path, datetime_original, location=None, caption=None):
 # Function to update IPTC information
 def update_iptc(image_path, caption):
     try:
+        # Check if the file is a JPEG - IPTC works best with JPEG files
+        file_path = Path(image_path)
+        if file_path.suffix.lower() not in ['.jpg', '.jpeg']:
+            logging.info(f"Skipping IPTC metadata for {file_path.suffix} file (IPTC works best with JPEG files)")
+            return
+            
         # Load the IPTC data from the image
         info = IPTCInfo(image_path, force=True)  # Use force=True to create IPTC data if it doesn't exist
 
         # Check for errors (known issue with iptcinfo3 creating _markers attribute error)
         if not hasattr(info, '_markers'):
             info._markers = []
+        
+        # Check for _fob attribute issue
+        if not hasattr(info, '_fob'):
+            logging.warning(f"IPTC library error with file {image_path}, skipping IPTC metadata")
+            return
 
         # Update the "Caption-Abstract" field
         if caption:
@@ -268,7 +279,7 @@ def update_iptc(image_path, caption):
         info.save_as(image_path)
         logging.info(f"Updated IPTC Caption-Abstract for {image_path}")
     except Exception as e:
-        logging.error(f"Failed to update IPTC Caption-Abstract for {image_path}: {e}")
+        logging.warning(f"Skipping IPTC metadata for {image_path}: {e}")
 
 
 # Function to handle deduplication
@@ -403,21 +414,20 @@ for entry in data:
             time_str = taken_at.strftime("%Y-%m-%dT%H-%M-%S")  # ISO standard format with '-' instead of ':' for time
             original_filename_without_extension = Path(path).stem  # Extract original filename without extension
 
-            if convert_to_jpeg == 'yes':
-                if keep_original_filename == 'yes':
-                    new_filename = f"{time_str}_{role}_{converted_path.name}"
-                else:
-                    new_filename = f"{time_str}_{role}.jpg"
+            # Determine the actual file extension based on conversion
+            actual_extension = file_extension
+            if convert_format == 'yes':
+                actual_extension = f'.{target_format}'
+
+            if keep_original_filename == 'yes':
+                new_filename = f"{time_str}_{role}_{original_filename_without_extension}{actual_extension}"
             else:
-                if keep_original_filename == 'yes':
-                    new_filename = f"{time_str}_{role}_{original_filename_without_extension}.webp"
-                else:
-                    new_filename = f"{time_str}_{role}.webp"
+                new_filename = f"{time_str}_{role}{actual_extension}"
 
             new_path = output_folder / new_filename
             new_path = get_unique_filename(new_path)  # Ensure the filename is unique
 
-            if convert_to_jpeg == 'yes' and converted:
+            if convert_format == 'yes' and converted:
                 converted_path.rename(new_path)  # Move and rename the file
 
                 # Update EXIF and IPTC data
@@ -428,6 +438,13 @@ for entry in data:
                 update_iptc(image_path_str, caption)
             else:
                 shutil.copy2(path, new_path) # Copy to new path
+
+                # Update EXIF and IPTC data for copied file
+                update_exif(new_path, taken_at, location, caption)
+                logging.info(f"EXIF data added to copied image.")
+
+                image_path_str = str(new_path)
+                update_iptc(image_path_str, caption)
 
             if role == 'primary':
                 primary_images.append({
